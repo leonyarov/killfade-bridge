@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+    <title>KF_IMG_INIT</title>
+    <style>
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+        #box { position: absolute; display: flex; align-items: center; justify-content: center; }
+        #img { display: block; }
+    </style>
+</head>
+<body>
+<div id="box"><img id="img" alt=""></div>
+<script>
+// KillFade image flash.
+//
+// The addon shows this page in a full-screen CitadelHTMLPanel and fades the panel's
+// opacity on a kill, exactly like the colour flash. Everything it needs is in the
+// fragment, so changing the image or mode never reloads the page:
+//
+//   #encodeURIComponent(JSON.stringify({ q, u, m, s }))
+//     u: https image URL
+//     m: "stretch" (fill the screen, distort) | "fill" (cover, crop) | "centre"
+//     s: centre mode only, the % of the screen the image may take up (keeps aspect)
+//
+// Load results go back through the title: "KF_IMG:<q>:ok:<w>x<h>" or "KF_IMG:<q>:err".
+(function () {
+    'use strict';
+
+    var box = document.getElementById('box');
+    var img = document.getElementById('img');
+    var current = { q: '' };
+
+    function report(q, what) { document.title = 'KF_IMG:' + q + ':' + what; }
+
+    function layout(m, s) {
+        var bs = box.style, is = img.style;
+        if (m === 'centre') {
+            var pct = Math.max(5, Math.min(100, Number(s) || 50));
+            bs.left = bs.top = ((100 - pct) / 2) + '%';
+            bs.width = bs.height = pct + '%';
+            is.width = is.height = 'auto';
+            is.maxWidth = is.maxHeight = '100%';
+            is.objectFit = '';
+        } else {
+            bs.left = bs.top = '0';
+            bs.width = bs.height = '100%';
+            is.width = is.height = '100%';
+            is.maxWidth = is.maxHeight = 'none';
+            is.objectFit = m === 'stretch' ? 'fill' : 'cover';
+        }
+    }
+
+    function apply() {
+        var m;
+        try { m = JSON.parse(decodeURIComponent(location.hash.slice(1))); } catch (_) { return; }
+        if (!m || typeof m.q !== 'string' || m.q === current.q) return;
+        current = m;
+        layout(m.m, m.s);
+        if (typeof m.u !== 'string' || !/^https:\/\//i.test(m.u)) { img.removeAttribute('src'); report(m.q, 'err'); return; }
+        if (img.getAttribute('src') === m.u && img.complete && img.naturalWidth) {
+            report(m.q, 'ok:' + img.naturalWidth + 'x' + img.naturalHeight);
+            return;
+        }
+        img.onload = function () { if (current === m) report(m.q, 'ok:' + img.naturalWidth + 'x' + img.naturalHeight); };
+        img.onerror = function () { if (current === m) report(m.q, 'err'); };
+        img.src = m.u;
+    }
+
+    window.addEventListener('hashchange', apply);
+    document.title = 'KF_IMG_READY';
+    if (location.hash.length > 1) apply();
+})();
+</script>
+</body>
+</html>
