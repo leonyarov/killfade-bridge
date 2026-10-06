@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline';">
+    <title>KF_INIT</title>
+</head>
+<body>
+<script>
+// KillFade settings bridge.
+//
+// Deadlock addons have no storage that survives a restart, but the game's embedded
+// browser (CitadelHTMLPanel, backed by Steam's htmlcache) keeps localStorage on disk.
+// The addon loads this page into a hidden 2px panel and talks to it like this:
+//
+//   request   location.hash = encodeURIComponent(JSON.stringify({ q, f, k, v }))
+//             f: "get" | "set",  q: unique request id,  k: key,  v: value (set only)
+//   reply     document.title = "KF_RES:" + JSON.stringify({ q, ok, v, e })
+//
+// Changing only the fragment fires `hashchange` without reloading the page, and
+// Panorama raises every title change as an HTMLTitle event on the panel.
+(function () {
+    'use strict';
+
+    // Only meaningful as a top-level page; refuse to run inside someone else's frame.
+    if (window.top !== window.self) return;
+
+    // Every page under leonyarov.github.io shares this origin's localStorage, so only
+    // KillFade's own keys are reachable from here.
+    var KEY_RE = /^killfade_[a-z0-9_]{1,40}$/;
+    var MAX_VALUE = 4096;
+
+    try {
+        localStorage.setItem('killfade__probe', '1');
+        localStorage.removeItem('killfade__probe');
+    } catch (e) {
+        document.title = 'KF_ERR:' + (e && e.message ? e.message : e);
+        return;
+    }
+
+    function reply(q, ok, v, e) {
+        var r = { q: q, ok: !!ok };
+        if (v !== undefined) r.v = v;
+        if (e) r.e = String(e);
+        document.title = 'KF_RES:' + JSON.stringify(r);
+    }
+
+    // A fragment already present when the page loads is a leftover from before a
+    // reload; acting on it would replay an old write over a newer one.
+    var lastQ = location.hash;
+
+    function onHash() {
+        var hash = location.hash;
+        if (!hash || hash.length < 2 || hash === lastQ) return;
+        lastQ = hash;
+        var m;
+        try { m = JSON.parse(decodeURIComponent(hash.slice(1))); } catch (_) { return; }
+        if (!m || typeof m.q !== 'string' || m.q.length > 64) return;
+        if (typeof m.k !== 'string' || !KEY_RE.test(m.k)) { reply(m.q, false, undefined, 'bad key'); return; }
+        try {
+            if (m.f === 'get') {
+                reply(m.q, true, localStorage.getItem(m.k));
+            } else if (m.f === 'set') {
+                if (typeof m.v !== 'string' || m.v.length > MAX_VALUE) { reply(m.q, false, undefined, 'bad value'); return; }
+                localStorage.setItem(m.k, m.v);
+                reply(m.q, true);
+            } else {
+                reply(m.q, false, undefined, 'bad op');
+            }
+        } catch (e) {
+            reply(m.q, false, undefined, e && e.message ? e.message : e);
+        }
+    }
+
+    window.addEventListener('hashchange', onHash);
+    document.title = 'KF_READY';
+})();
+</script>
+</body>
+</html>
